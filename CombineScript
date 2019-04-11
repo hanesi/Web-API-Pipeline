@@ -1,0 +1,97 @@
+import requests
+import pandas as pd
+import os
+
+#Specify subject and number of records requested. Numrecs chosen arbitrarily
+subjectPLOS = 'Tobacco'
+subjectDOAJ = 'PLOS%20tobacco' #DOAJ has an extra parameter to only pull PLOS results
+numrecs = '50'
+
+#Function that retrieves page information
+def getpagePLOS(subject,numrecs):
+    base_url = "http://api.plos.org/search?q="
+    pagesize = '&start=1&rows='
+    r = requests.get(base_url+subject+pagesize+numrecs)
+    return r.json()
+
+#Calculates the number of results for iteration and assigns the data to a variable
+reqresultP = getpagePLOS(subjectPLOS,numrecs)['response']['docs']
+lengthP = len(reqresultP)
+
+#Initialze blank lists
+idlist = []
+authlist = []
+jourlist = []
+scorelist = []
+eissnlist = []
+titlelist = []
+
+#Append the relevant datafields to each list
+for i in range(0,lengthP):
+    idlist.append(reqresultP[i]['id'])
+    authlist.append(reqresultP[i]['author_display'])
+    jourlist.append(reqresultP[i]['journal'])
+    scorelist.append(reqresultP[i]['score'])
+    eissnlist.append(reqresultP[i]['eissn'])
+    titlelist.append(reqresultP[i]['title_display'])
+
+#Create a pandas dataframe with the data from each list
+PLOS_Table = pd.DataFrame(list(zip(idlist, authlist,jourlist,scorelist,eissnlist, titlelist)))
+PLOS_Table.columns = ['id','Author(s)','Journal','Score','EISSN','Title']
+
+#Authors are stored as list objects, this converts them to a string
+PLOS_Table['Author(s)']=PLOS_Table['Author(s)'].apply(', '.join)
+
+#Repeat the above process using the DOAJ API
+def getpageDOAJ(subject,numrecs):
+    doajbaseurl = 'https://doaj.org/api/v1/search/articles/'
+    searchcrit = 'PLOS%20tobacco'
+    pagesize = '?pageSize='
+    r = requests.get(doajbaseurl+subject+pagesize+numrecs)
+    return r.json()
+
+doajresult = getpageDOAJ(subjectDOAJ,numrecs)['results']
+lengthD = len(doajresult)
+deissn = doajresult[0]['bibjson']['identifier'][0]['id']
+did= doajresult[0]['bibjson']['identifier'][1]['id']
+djournid = doajresult[0]['id']
+
+didlist = []
+deissnlist = []
+djournlist = []
+publist = []
+journtitlelist = []
+countrylist = []
+numlist = []
+vollist = []
+issnlist = []
+
+for i in range(0,lengthD):
+    didlist.append([x.get('id') for x in doajresult[i]['bibjson']['identifier'] if x.get('type') == 'doi'])
+    djournlist.append(doajresult[i]['id'])
+    publist.append(doajresult[i]['bibjson']['journal']['publisher'])
+    journtitlelist.append(doajresult[i]['bibjson']['journal']['title'])
+    countrylist.append(doajresult[i]['bibjson']['journal']['country'])
+    numlist.append(doajresult[i]['bibjson']['journal']['number'])
+    vollist.append(doajresult[i]['bibjson']['journal']['volume'])
+    issnlist.append(doajresult[i]['bibjson']['journal']['issns'])
+
+doajtable = pd.DataFrame(list(zip(didlist,djournlist,publist,journtitlelist,countrylist,numlist, vollist,issnlist)))
+doajtable.columns = ['id','JournalID','Publisher','JournalTitle','Country','Number','Volume','ISSN']
+#The above returns each id and ISSN as a list object, this converts them to a string
+doajtable['id']=doajtable['id'].apply(''.join)
+doajtable['ISSN']=doajtable['ISSN'].apply(', '.join)
+
+#Join both tables based on id
+final_table = pd.merge(PLOS_Table,doajtable,on='id', how='inner')
+final_table.sort_values(by=['Score'],ascending=False)
+
+#Get current working directory, assign file name
+cwd = os.getcwd()
+filename = '\\Results.csv'
+
+#Combine both
+savepath = cwd+filename
+
+#Write final table to csv
+final_table.to_csv(savepath, header=True, index=False, encoding='utf-8')
